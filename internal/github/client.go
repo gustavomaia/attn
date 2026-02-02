@@ -11,12 +11,12 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/victorarias/attn/internal/pathutil"
 	"github.com/victorarias/attn/internal/protocol"
 	"golang.org/x/time/rate"
 )
@@ -64,8 +64,9 @@ func NewClient(baseURL string) (*Client, error) {
 	if token == "" {
 		// Try gh auth token
 		output, err := ghAuthToken()
-		if err != nil && runtime.GOOS == "darwin" && errors.Is(err, exec.ErrNotFound) {
-			if updatePathFromHelper() == nil {
+		if err != nil && errors.Is(err, exec.ErrNotFound) {
+			// PATH might be missing common locations on macOS GUI apps
+			if pathutil.EnsureGUIPath() == nil {
 				output, err = ghAuthToken()
 			}
 		}
@@ -102,37 +103,6 @@ func NewClient(baseURL string) (*Client, error) {
 func ghAuthToken() ([]byte, error) {
 	cmd := exec.Command("gh", "auth", "token")
 	return cmd.Output()
-}
-
-// On macOS GUI app launches, PATH can be missing common locations.
-// Rebuild PATH using the system path_helper and update env.
-func updatePathFromHelper() error {
-	cmd := exec.Command("/usr/libexec/path_helper", "-s")
-	output, err := cmd.Output()
-	if err != nil {
-		return err
-	}
-
-	path := extractPathFromShellOutput(string(output))
-	if path == "" {
-		return fmt.Errorf("path_helper output missing PATH")
-	}
-	return os.Setenv("PATH", path)
-}
-
-func extractPathFromShellOutput(output string) string {
-	// path_helper -s outputs: PATH="..."; export PATH;
-	const prefix = "PATH=\""
-	start := strings.Index(output, prefix)
-	if start == -1 {
-		return ""
-	}
-	start += len(prefix)
-	end := strings.Index(output[start:], "\"")
-	if end == -1 {
-		return ""
-	}
-	return output[start : start+end]
 }
 
 // IsAvailable returns true if the client has a valid token
